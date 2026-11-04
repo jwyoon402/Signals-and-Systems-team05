@@ -1,0 +1,15 @@
+# 입력 및 출력 음성
+input/
+output/
+
+# 데이터셋
+train/
+validation/
+data/
+
+# Python 임시 파일
+__pycache__/
+*.pyc
+
+# Jupyter 임시 파일
+.ipynb_checkpoints/
