@@ -1,11 +1,11 @@
-"""Week 1 Speech Noise Reduction Challenge submission.
+"""1주차 음성 노이즈 감소 챌린지 제출물.
 
-Based on the provided baseline Wiener filter, with parameter tuning:
+제공된 Wiener filter를 바탕으로 파라미터를 조정하면:
     wiener_smoothing: 0.98 -> 0.95
     wiener_gain_floor: 0.05 -> 0.03
 
-Reads WAV files from input/ and writes corresponding enhanced WAVs to output/.
-The implementation accesses only each noisy input file, not clean references.
+입력/에서 WAV 파일을 읽고, 해당 향상된 WAV 파일을 출력/에 씁니다.
+구현은 깨끗한 참조 파일이 아닌 각 노이즈 입력 파일에만 접근합니다.
 """
 from __future__ import annotations
 
