@@ -1,11 +1,14 @@
-"""1주차 음성 노이즈 감소 챌린지 제출물.
+"""2주 차 후보: MMSE-STSA 기반 음성 잡음 제거 프로그램.
 
-제공된 Wiener filter를 바탕으로 파라미터를 조정하면:
-    wiener_smoothing: 0.98 -> 0.95
-    wiener_gain_floor: 0.05 -> 0.03
+교수님 기본 Wiener Filter와 동일한 STFT·잡음 파워 추정·Decision-Directed
+사전 SNR 추정을 유지하고, Wiener 이득 대신 MMSE-STSA 이득을 적용합니다.
+잡음 제거 중 정답(clean) 음성은 사용하지 않습니다.
 
-입력/에서 WAV 파일을 읽고, 해당 향상된 WAV 파일을 출력/에 씁니다.
-구현은 깨끗한 참조 파일이 아닌 각 노이즈 입력 파일에만 접근합니다.
+실행 예시:
+    python enhance.py --input_dir input --output_dir output
+
+입력: 16 kHz WAV 파일 (모노 또는 여러 채널)
+출력: 동일한 파일명·샘플링 주파수·채널 수·샘플 수의 WAV 파일
 """
 from __future__ import annotations
 
@@ -16,62 +19,83 @@ import numpy as np
 import soundfile as sf
 from scipy import signal
 from scipy.ndimage import uniform_filter1d
+from scipy.special import i0e, i1e
 
+# Validation 실험에서 사용한 파라미터를 그대로 유지합니다.
 SAMPLE_RATE = 16000
 N_FFT = 512
 HOP = 128
 NOISE_FRACTION = 0.20
-WIENER_SMOOTHING = 0.95
-WIENER_GAIN_FLOOR = 0.03
+DD_SMOOTHING = 0.95
+GAIN_FLOOR = 0.03
+EPS = 1e-18
 
 
-def estimate_noise_power(stft_matrix: np.ndarray, times: np.ndarray,
+def estimate_noise_power(z: np.ndarray, times: np.ndarray,
                          signal_length: int) -> np.ndarray:
-    """Estimate stationary noise using lowest-energy complete STFT frames."""
-    power = np.abs(stft_matrix) ** 2
+    """에너지가 작은 완전한 STFT 프레임으로 주파수별 잡음 파워를 추정합니다."""
+    power = np.abs(z) ** 2
+
+    # STFT 경계의 0 패딩이 잡음 추정에 섞이지 않도록 완전한 프레임만 선택합니다.
     centers = np.rint(times * SAMPLE_RATE).astype(int)
     full = np.flatnonzero(
-        (centers >= N_FFT // 2) &
-        (centers + N_FFT // 2 <= signal_length)
+        (centers >= N_FFT // 2)
+        & (centers + N_FFT // 2 <= signal_length)
     )
     if len(full) == 0:
         full = np.arange(power.shape[1])
+
     energy = power[:, full].mean(axis=0)
     count = max(1, int(np.ceil(NOISE_FRACTION * len(full))))
-    selected = full[np.argsort(energy, kind="stable")[:count]]
-    noise = power[:, selected].mean(axis=1)
-    return np.maximum(uniform_filter1d(noise, size=3, mode="nearest"), 1e-18)
+    chosen = full[np.argsort(energy, kind="stable")[:count]]
+    noise = power[:, chosen].mean(axis=1)
+    return np.maximum(uniform_filter1d(noise, size=3, mode="nearest"), EPS)
 
 
-def wiener_filter(noisy: np.ndarray) -> np.ndarray:
-    noisy = np.asarray(noisy, dtype=np.float64)
-    if noisy.ndim != 1 or len(noisy) == 0 or not np.isfinite(noisy).all():
-        raise ValueError("Expected a nonempty finite mono audio signal")
-    original_length = len(noisy)
-    if original_length < N_FFT:
-        noisy = np.pad(noisy, (0, N_FFT - original_length))
+def mmse_stsa_filter(noisy: np.ndarray) -> np.ndarray:
+    """모노 음성에 MMSE-STSA 이득을 적용하고 원래 샘플 수로 복원합니다."""
+    x = np.asarray(noisy, dtype=np.float64)
+    if x.ndim != 1 or x.size == 0 or not np.isfinite(x).all():
+        raise ValueError("유효한 1차원 모노 음성이 필요합니다.")
+    original_length = len(x)
+
+    # 짧은 음성도 일정한 FFT 크기로 처리합니다.
+    if len(x) < N_FFT:
+        x = np.pad(x, (0, N_FFT - len(x)))
 
     _, times, z = signal.stft(
-        noisy, fs=SAMPLE_RATE, window="hann", nperseg=N_FFT,
+        x, fs=SAMPLE_RATE, window="hann", nperseg=N_FFT,
         noverlap=N_FFT - HOP, nfft=N_FFT,
         boundary="zeros", padded=True,
     )
     power = np.abs(z) ** 2
-    noise = estimate_noise_power(z, times, len(noisy))
-    posterior_snr = power / noise[:, None]
+    noise = estimate_noise_power(z, times, len(x))
 
     enhanced = np.empty_like(z)
     previous_clean_power = np.zeros_like(noise)
+
     for frame in range(z.shape[1]):
-        instantaneous = np.maximum(posterior_snr[:, frame] - 1.0, 0.0)
+        # 사후 SNR 및 Decision-Directed 사전 SNR 추정
+        gamma = np.clip(power[:, frame] / noise, 1e-8, 1e6)
+        instantaneous = np.maximum(gamma - 1.0, 0.0)
         if frame == 0:
-            prior_snr = instantaneous
+            xi = instantaneous
         else:
-            prior_snr = (
-                WIENER_SMOOTHING * previous_clean_power / noise
-                + (1.0 - WIENER_SMOOTHING) * instantaneous
+            xi = (
+                DD_SMOOTHING * previous_clean_power / noise
+                + (1.0 - DD_SMOOTHING) * instantaneous
             )
-        gain = np.clip(prior_snr / (1.0 + prior_snr), WIENER_GAIN_FLOOR, 1.0)
+        xi = np.clip(xi, 0.0, 1e6)
+
+        # Ephraim–Malah MMSE-STSA 이득: i0e/i1e로 지수 항을 안정적으로 계산
+        v = gamma * xi / (1.0 + xi)
+        gain = (
+            np.sqrt(np.pi) / 2.0
+            * np.sqrt(v) / gamma
+            * ((1.0 + v) * i0e(v / 2.0) + v * i1e(v / 2.0))
+        )
+        # 음성의 과도한 감쇠·증폭을 방지하는 실험용 이득 제한
+        gain = np.clip(gain, GAIN_FLOOR, 1.0)
         enhanced[:, frame] = gain * z[:, frame]
         previous_clean_power = np.abs(enhanced[:, frame]) ** 2
 
@@ -81,37 +105,51 @@ def wiener_filter(noisy: np.ndarray) -> np.ndarray:
         input_onesided=True, boundary=True,
     )
     if len(output) < original_length:
-        raise RuntimeError("Inverse STFT produced too few samples")
+        raise RuntimeError("복원된 음성의 샘플 수가 부족합니다.")
     return np.asarray(output[:original_length], dtype=np.float64)
 
 
 def process_folder(input_dir: Path, output_dir: Path) -> None:
+    """input/의 모든 WAV를 처리하여 상대 경로와 파일명을 유지해 저장합니다."""
     if not input_dir.is_dir():
-        raise FileNotFoundError(f"Input folder does not exist: {input_dir}")
-    audio_files = sorted(
+        raise FileNotFoundError(f"입력 폴더를 찾지 못했습니다: {input_dir}")
+
+    files = sorted(
         p for p in input_dir.rglob("*")
         if p.is_file() and p.suffix.lower() == ".wav"
     )
-    if not audio_files:
-        raise FileNotFoundError(f"No .wav files in: {input_dir}")
+    if not files:
+        raise FileNotFoundError(f"입력 폴더에 WAV 파일이 없습니다: {input_dir}")
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    for idx, source in enumerate(audio_files, start=1):
-        audio, sr = sf.read(source, dtype="float64")
-        if sr != SAMPLE_RATE:
-            raise ValueError(f"{source}: expected {SAMPLE_RATE} Hz, got {sr} Hz")
-        if audio.ndim != 1:
-            raise ValueError(f"{source}: expected mono WAV")
-        enhanced = wiener_filter(audio)
-        target = output_dir / source.relative_to(input_dir)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        # Original notebook's export uses floating-point WAV, without normalizing.
-        sf.write(target, enhanced, SAMPLE_RATE, subtype="FLOAT")
-        print(f"[{idx}/{len(audio_files)}] {source.name} -> {target}")
-    print(f"Done: {len(audio_files)} files, output: {output_dir}")
+    for idx, source in enumerate(files, start=1):
+        audio, sample_rate = sf.read(source, dtype="float64", always_2d=True)
+        if sample_rate != SAMPLE_RATE:
+            raise ValueError(
+                f"{source}: 입력은 16 kHz WAV여야 합니다 (현재 {sample_rate} Hz)."
+            )
+
+        # 채널별로 동일한 잡음 제거 알고리즘을 적용해 채널 수를 보존합니다.
+        channels = [mmse_stsa_filter(audio[:, ch]) for ch in range(audio.shape[1])]
+        result = np.column_stack(channels)
+        if result.shape != audio.shape:
+            raise RuntimeError(f"음성 형태가 달라졌습니다: {source}")
+
+        destination = output_dir / source.relative_to(input_dir)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        # 교수님 노트북과 동일한 정규화 없는 부동소수점 WAV 출력
+        sf.write(
+            destination,
+            result[:, 0] if result.shape[1] == 1 else result,
+            sample_rate,
+            subtype="FLOAT",
+        )
+        print(f"[{idx}/{len(files)}] {source.name} -> {destination}")
+    print(f"처리 완료: {len(files)}개, 출력 폴더: {output_dir}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Week 1 Wiener-filter denoiser")
+    parser = argparse.ArgumentParser(description="MMSE-STSA 음성 잡음 제거 (2주 차 후보)")
     parser.add_argument("--input_dir", type=Path, default=Path("input"))
     parser.add_argument("--output_dir", type=Path, default=Path("output"))
     args = parser.parse_args()
