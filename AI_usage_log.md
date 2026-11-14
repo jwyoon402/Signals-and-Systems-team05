@@ -1,65 +1,149 @@
-## 2주 차 AI 활용 내역
+# 신호 및 시스템 AI 활용 내역서 — 2주 차 두 번째 제출
 
-### 1. AI 활용 도구
-- ChatGPT (OpenAI)
+**팀명:** 5조 (오버클록)  
+**팀원:** 윤종원, 강은비, 이준수  
+**제출 내용:** MMSE-STSA → MMSE-LSA 전환 및 잡음 추정 파라미터 최적화
 
-### 2. AI 활용 목적
-기존 Wiener Filter의 잡음 제거 성능을 개선하기 위해 새로운 신호 처리 알고리즘을 탐색하고, PESQ 평가 결과를 비교하는 과정에서 AI를 활용하였다.
+## Part 1\. AI 활용 개요
 
-### 3. AI 활용 내용
-- 기존 Decision-Directed Wiener Filter의 동작 원리 분석
-- 적응형 잡음 추정(Adaptive Noise Estimation) 방법 탐색 및 Python 코드 작성 지원
-- 적응형 Wiener Filter의 파라미터 조정 및 평가 결과 분석
-- MMSE-STSA 알고리즘의 핵심 원리와 수식 이해
-- MMSE-STSA 알고리즘의 Python 코드 구현 지원
-- 기존 Wiener Filter와 MMSE-STSA의 PESQ 성능 비교 코드 작성
-- GitHub 제출용 `enhance.py` 제작 및 실행 검증 지원
-- README 및 실행 환경 정리
+- **활용 AI 모델:** ChatGPT (OpenAI)  
+- **주요 활용 목적:** 전통적인 음성 잡음 제거 알고리즘 탐색, MMSE-LSA 수식 및 Python 구현 이해, 알고리즘별 PESQ 비교 코드 작성, 실행 오류 해결, 잡음 추정 파라미터 분석, WAV 입출력 검증, 청취·스펙트로그램 분석 및 제출 자료 정리  
+- **활용 원칙:** 머신러닝·딥러닝 모델을 사용하지 않았다. 잡음 제거 알고리즘은 Noisy 음성만으로 동작하며, Clean 음성은 공개 데이터의 성능 평가에만 사용하였다. AI의 제안은 Train 및 Validation 실험으로 직접 검증하였다.
 
-### 4. 알고리즘 실험 과정
+## Part 2\. 프롬프트 및 검증 로그
 
-**(1) 적응형 Wiener Filter**
+### 사례 1\. MMSE-LSA 알고리즘 적용 및 기존 MMSE-STSA와 비교
 
-기존 Wiener Filter에 시간에 따라 잡음 파워를 갱신하는 방식을 추가하였다.
+**나의 질문(대화 요지)**  
+“전통적인 신호 처리만 사용하면서 현재 MMSE-STSA의 PESQ를 더 높이고 싶다. MMSE-LSA를 적용하면 기존 알고리즘과 무엇이 다르며, 어떻게 공정하게 비교할 수 있는가?”
 
-Train 데이터 30개를 이용한 평가 결과는 다음과 같다.
+**AI 답변 요약**  
+MMSE-STSA에서 사용한 STFT, 잡음 파워 추정, Decision-Directed 사전 SNR 추정 구조를 유지하고, **스펙트럼 크기 추정 이득**을 **로그 스펙트럼 크기의 평균제곱오차를 최소화하는 MMSE-LSA 이득**으로 변경하도록 제안하였다. 구현 시 SciPy의 지수적분 함수 `scipy.special.exp1`을 사용하고, 같은 음성 파일에 대해 PESQ-WB 점수를 계산하도록 비교 코드를 제시하였다.
 
-| 알고리즘 | 평균 PESQ |
-| 기존 Wiener Filter | 1.6056 |
-| 적응형 Wiener (0.98 / 1.5) | 1.6007 |
-| 적응형 Wiener (0.995 / 1.2) | 1.6043 |
+**알고리즘 이해 및 선정 이유**  
+MMSE-STSA는 스펙트럼 크기에 대한 평균제곱오차를 최소화하지만, MMSE-LSA는 **로그 스펙트럼 크기의 오차**를 최소화한다. 음성 품질 향상을 목표로 할 때 비교할 가치가 있다고 판단했다. 두 방식에서 잡음 추정과 STFT 조건을 같게 설정하여, 우선 이득 계산 방식의 차이를 확인하였다.
 
-적응형 잡음 추정 방법은 파라미터를 조정하면서 성능이 일부 개선되었으나 기존 Wiener Filter보다 높은 점수를 얻지 못하여 최종 알고리즘으로 채택하지 않았다.
+**나의 검증 및 수정**
 
-**(2) MMSE-STSA 알고리즘**
+| 데이터 | MMSE-STSA 평균 PESQ | MMSE-LSA 평균 PESQ | 개선량 | MMSE-LSA 우세 파일 |
+| :---- | ----: | ----: | ----: | ----: |
+| Train 동일 60개 | 1.6610 | **1.6934** | **\+0.0324** | 35/60 |
+| Validation 164개 | 1.6349 | **1.6674** | **\+0.0325** | 107/164 |
 
-기존 Wiener Filter의 STFT 및 잡음 추정 구조를 유지하면서 MMSE-STSA 방식으로 필터 이득을 계산하도록 변경하였다.
+MMSE-LSA가 두 데이터 분할에서 모두 평균 PESQ가 높아 추가 최적화의 기준 알고리즘으로 채택하였다. 단, 개별 파일 모두에서 좋아진 것은 아니므로 평균뿐 아니라 우세 파일 수도 함께 확인하였다.
 
-Train 데이터 30개와 Validation 데이터 164개를 이용하여 성능을 비교하였다.
+### 사례 2\. MCRA 기반 간소화 잡음 추정 결합 실험과 보류
 
-| 알고리즘 | Train 30개 PESQ | Validation 164개 PESQ |
-| 기존 Wiener Filter | 1.6056 | 1.6003 |
-| MMSE-STSA | 1.6905 | 1.6349 |
+**나의 질문(대화 요지)**  
+“MMSE-LSA에 MCRA처럼 시간에 따라 잡음 파워를 갱신하는 방식을 결합하면 성능을 더 높일 수 있는가?”
 
-Validation 기준 평균 PESQ가 0.0346 상승하였다.
+**AI 답변 요약**  
+주파수·시간 방향으로 파워를 평활화하고, 최근 프레임의 최소 에너지에 대한 비율로 음성 존재 가능성을 추정한 뒤 잡음 파워를 점진적으로 갱신하는 **MCRA 기반 간소화 구현**을 제안하였다. 이 구현은 Cohen–Berdugo의 MCRA 논문을 완전히 재현한 것이 아니라, 그 아이디어를 참고한 실험용 방식이었다. 초기 실험에서는 기존 잡음 추정과 적응형 잡음 추정을 혼합하였다(`noise_mix=0.4`).
 
-### 5. 코드 검증
+**나의 검증 및 수정**
 
-AI의 도움을 받아 작성한 MMSE-STSA 코드를 Google Colab에서 실행하고 결과를 직접 검증하였다.
+| 알고리즘 | Train 동일 60개 평균 PESQ |
+| :---- | ----: |
+| 기존 MMSE-LSA | **1.6934** |
+| 간소화 MCRA \+ MMSE-LSA | 1.4843 |
 
-- 입력 음성과 출력 음성의 샘플링 주파수, 채널 수, 샘플 수 일치 확인
-- 기존 코랩 MMSE-STSA 함수와 제출용 코드의 계산 결과 비교
-- Validation 전체 164개 음성 처리 성공
-- 제출용 코드의 평균 PESQ 1.6349 재현 확인
+- 평균 PESQ가 약 **0.2091 감소**하였다.  
+- 간소화 MCRA 결합이 더 좋았던 파일은 **60개 중 2개**였다.  
+- 음성 구간의 파워가 잡음 파워 추정에 섞여 음성까지 과도하게 감쇠되었을 가능성을 검토하였으나, **원인을 별도로 확정하는 분석은 수행하지 않았다**.  
+- 성능 저하가 커서 이 간소화 결합 구현은 최종 제출 코드에서 제외하였다. **이 결과가 정식 MCRA 알고리즘 자체의 성능을 의미하는 것은 아니다.**
 
-### 6. AI 활용 결과
+### 사례 3\. MMSE-LSA 파라미터 최적화 및 제출용 코드 재현 검증
 
-AI를 활용하여 기존 Wiener Filter와 적응형 Wiener Filter의 한계를 분석하고, MMSE-STSA 알고리즘을 구현하였다.
+**나의 질문(대화 요지)**  
+“MMSE-LSA가 더 좋게 나왔으니, 이득 제한과 잡음 파워 추정 방법의 수치를 조절하여 PESQ를 높이고 제출 코드에서도 같은 결과가 나오는지 확인하자.”
 
-제안된 알고리즘과 파라미터의 성능을 Google Colab에서 직접 검증하였으며, 그 결과를 바탕으로 MMSE-STSA를 2주 차 제출 알고리즘으로 선정하였다.
+**AI 답변 요약**  
+`smoothing`, `gain_floor`, `noise_fraction`, `noise_scale`을 분리하여 변경하고, 동일한 Train 60개로 비교한 다음 유망한 설정만 Validation으로 평가하도록 안내하였다. 최종 제출 파일은 `input/`의 WAV를 처리하여 같은 파일명으로 `output/`에 저장하고, 샘플링 주파수·채널 수·샘플 수를 유지하도록 구성하였다.
 
-### 7. 참고 문헌
+**나의 검증 및 수정 과정**
 
-Y. Ephraim and D. Malah, "Speech Enhancement Using a Minimum Mean-Square Error Short-Time Spectral Amplitude Estimator," IEEE Transactions on Acoustics, Speech, and Signal Processing, vol. 32, no. 6, pp. 1109–1121, 1984.
+1. **사전 SNR 평활화 계수 및 최소 이득 비교**  
+   `wiener_smoothing` \= 0.90/0.95/0.98, `wiener_gain_floor` \= 0.01/0.03의 6개 조합을 비교하였다. 기존 설정인 **0.95 / 0.03**에서 Train 평균 PESQ **1.6934**가 가장 높아 유지하였다.  
+2. **잡음 프레임 선택 비율 변경**  
+   `noise_fraction` \= 0.10/0.15/0.20/0.25/0.30/0.40을 비교했으며, 0.10에서 Train 평균 **1.7193**으로 가장 높았다. 더 작은 값 0.04/0.06/0.08과 0.12도 비교했지만, 0.10보다 개선되지 않았다. Validation에서는 **0.10: 1.6976**, **0.15: 1.6865**, **0.20: 1.6674**를 기록했다.  
+3. **잡음 파워 보정 계수 변경**  
+   `noise_scale=1.0`에서 기존 MMSE-LSA 함수와 수정 함수의 출력 최대 오차가 **0.0**으로 확인되었다. 같은 Train 60개에서 `noise_scale=1.60`은 **1.7406**, `1.80`은 **1.7402**로 1.60이 근소하게 더 높았다. Validation 164개에서는 **1.60: 1.7477**, **1.80: 1.7516**으로 1.80이 더 높았다. 두 값의 차이가 작으므로 Hidden Test에서 우열이 유지된다는 보장은 없다.  
+4. **제출 코드 검증**  
+   최종 설정을 반영한 독립 실행용 `enhance.py`로 Validation WAV **164개를 모두 처리**한 뒤 평균 PESQ **1.7516**을 재현하였다. 노트북에서 계산한 결과와 제출용 WAV의 최대 샘플 오차는 약 **2.98 × 10⁻⁸**이었고, 출력의 **샘플링 주파수·채널 수·샘플 수 검사에 통과**했다. 두 평가 경로의 평균 PESQ 차이는 약 **\+0.000026**이었다.
 
-DOI: https://doi.org/10.1109/TASSP.1984.1164453
+**이번 제출 설정값**
+
+| 파라미터 | 값 |
+| :---- | ----: |
+| `SAMPLE_RATE` | 16000 Hz |
+| `N_FFT` / `HOP` | 512 / 128 |
+| `NOISE_FRACTION` | 0.10 |
+| `NOISE_SCALE` | **1.80** |
+| `DD_SMOOTHING` | 0.95 |
+| `GAIN_FLOOR` | 0.03 |
+
+**최종 Validation 성능 비교(164개)**
+
+| 알고리즘 | 평균 PESQ-WB | 평균 SNR (dB) |
+| :---- | ----: | ----: |
+| Noisy 입력 | 1.3947 | 9.6341 |
+| 기존 Wiener Filter | 1.6003 | **13.6455** |
+| 직전 제출 MMSE-STSA | 1.6349 | 13.2891 |
+| **이번 제출 MMSE-LSA** | **1.7516** | **13.4182** |
+
+직전 제출인 MMSE-STSA 대비 **PESQ \+0.1167**, **SNR \+0.1291 dB**이 개선되었다. 그러나 Wiener Filter의 평균 SNR보다는 0.2273 dB 낮아, SNR과 PESQ의 순위가 항상 같지는 않음을 확인하였다. 챌린지 공식 순위는 비공개 테스트의 평균 PESQ로 결정되므로, 공개 Validation 점수만으로 최종 성적을 확정할 수 없다.
+
+#### 사례 3의 추가 검증: 직접 청취 및 스펙트로그램 비교
+
+**나의 질문(대화 요지)**  
+“MMSE-LSA가 실제로 얼마나 잡음을 줄이는지 청취 및 스펙트로그램으로 MMSE-STSA와 비교하자.”
+
+**AI 답변 요약**  
+동일한 Validation 파일 1개에 대해 Clean·Noisy·MMSE-STSA·MMSE-LSA를 동일한 재생 조건에서 비교하고, 공통 주파수 축과 색상 범위를 사용하는 스펙트로그램을 그리는 방법을 제시하였다.
+
+**나의 직접 검증 및 해석**
+
+- **청취:** 약 3초 길이의 Validation 음성 **1개**를 비교한 결과, **MMSE-LSA가 MMSE-STSA보다 잡음이 훨씬 적게 들렸지만 목소리가 약간 먹먹하게 느껴졌다**.  
+- **스펙트로그램:** MMSE-LSA에서는 MMSE-STSA보다 중·고주파 영역의 배경 성분이 전반적으로 더 강하게 억제되어 보였다. 반면 일부 음성 구간의 주파수 성분도 함께 감소한 것으로 보여, 먹먹함과 관련될 가능성을 생각해 보았다.  
+- **해석상의 한계:** 청취 및 시각화는 **한 파일에 대한 관찰**이므로 음성 왜곡의 원인을 단정하거나 모든 파일에 일반화하지 않았다. PESQ와 SNR은 별도로 **164개 전체**에 대해 계산한 값이다.
+
+### 참고 문헌과 확인한 내용
+
+**\[1\] 이전 MMSE-STSA 및 Decision-Directed 방식의 기반 논문**  
+Y. Ephraim and D. Malah, “Speech Enhancement Using a Minimum Mean-Square Error Short-Time Spectral Amplitude Estimator,” *IEEE Transactions on Acoustics, Speech, and Signal Processing*, vol. ASSP-32, no. 6, pp. 1109–1121, 1984\.  
+DOI: [https\://doi.org/10.1109/TASSP.1984.1164453](https://doi.org/10.1109/TASSP.1984.1164453)
+
+- 확인 자료: 제공받은 **1984년 논문 PDF 원문**.  
+- **1111쪽 식 (7)**: MMSE-STSA의 크기 추정과 수정 베셀 함수에 기반한 이득 계산.  
+- **1118쪽 식 (51)**: 이전 프레임 추정값을 사용하는 Decision-Directed 사전 SNR 추정.  
+- 이번 버전에서도 사전 SNR 추정 구조를 유지하되, 최종 이득 함수는 MMSE-LSA로 교체하였다.
+
+**\[2\] MMSE-LSA 알고리즘의 기반 논문**  
+Y. Ephraim and D. Malah, “Speech Enhancement Using a Minimum Mean-Square Error Log-Spectral Amplitude Estimator,” *IEEE Transactions on Acoustics, Speech, and Signal Processing*, vol. ASSP-33, no. 2, pp. 443–445, 1985\.  
+DOI: [https\://doi.org/10.1109/TASSP.1985.1164550](https://doi.org/10.1109/TASSP.1985.1164550)  
+연구자 공개 원문: [https\://malah.net.technion.ac.il/files/2017/08/Ephraim\_Speech\_Enhancement\_Minimum\_ASSP85.pdf](https://malah.net.technion.ac.il/files/2017/08/Ephraim_Speech_Enhancement_Minimum_ASSP85.pdf)
+
+- 자료 검토 내용: 논문은 **로그 스펙트럼 크기의 제곱오차**를 최소화하는 목적함수(444쪽 식 (1))를 사용한다. \*\*445쪽 식 (20)\*\*에서는 사전 SNR, 사후 SNR 및 지수적분을 이용한 MMSE-LSA 크기 추정식을 제시한다.  
+- 코드 반영: 이득 계산에서 `exp1(v)`를 사용하고 기존 STFT/Decision-Directed 처리 구조를 유지하였다.  
+- 문헌 검토 범위: 1985년 논문의 **서지정보와 공개 원문의 관련 식은 ChatGPT의 도움으로 대조하였다.** AI가 확인한 원문 내용을 그대로 본인이 직접 읽었다고 기재하지 않도록, 제출 전 연구자 공개 원문에서 식 (1), (20)을 직접 확인한다.
+
+**\[3\] 실패한 간소화 MCRA 실험에서 참고한 논문**  
+I. Cohen and B. Berdugo, “Noise Estimation by Minima Controlled Recursive Averaging for Robust Speech Enhancement,” *IEEE Signal Processing Letters*, vol. 9, no. 1, pp. 12–15, 2002\.  
+DOI: [https\://doi.org/10.1109/97.988717](https://doi.org/10.1109/97.988717)
+
+- 서지정보와 공개 초록에서는 최근 최소 에너지와 음성 존재 확률을 이용하여 잡음 파워를 갱신하는 MCRA 개념을 설명한다.  
+- 실제 실험 코드는 이를 **단순화하여 구현한 파생 실험 코드**로, 논문 알고리즘의 완전한 재현이 아니다. 따라서 해당 실험이 낮은 PESQ를 기록했다고 해서 원 논문의 방법이 나쁘다고 결론 내리지 않았다.
+
+## Part 3\. 종합 고찰
+
+이번에는 ChatGPT의 도움으로 MMSE-STSA를 MMSE-LSA로 변경하고, 실험 결과를 바탕으로 잡음 파워 추정 방식을 최적화하였다. 초기 MMSE-LSA는 Validation PESQ **1.6674**를 기록했고, `noise_fraction=0.10`에서 **1.6976**, `noise_scale=1.80`을 적용한 최종 코드에서 **1.7516**으로 개선되었다.
+
+한편 MCRA의 아이디어를 참고한 간소화 결합 코드는 PESQ를 크게 낮추었다. 이를 통해 **새로운 기법을 더하는 것 자체가 개선을 보장하지 않으며**, 동일한 입력과 지표로 검증하는 과정이 필요함을 확인하였다. 또한 Train에서는 `noise_scale=1.60`이 약간 높았지만 Validation에서는 1.80이 약간 높았으므로, 공개 데이터에서 반복적으로 파라미터를 선택할 때 생길 수 있는 **Validation 과적합 가능성**도 고려해야 한다.
+
+최종 코드의 평균 PESQ와 SNR은 이전 제출보다 모두 높았지만, 직접 청취한 한 파일에서는 잡음이 훨씬 적어진 대신 목소리가 약간 먹먹하게 들렸다. 따라서 **수치상의 품질 개선과 주관적인 자연스러움을 구별해서 평가해야 한다**고 판단하였다. 제출용 코드는 Noisy만으로 동작하며, 동일한 WAV 입출력 조건에서 전체 Validation 결과를 재현하였다. 앞으로는 숨겨진 테스트에서의 일반화 성능을 고려하여 알고리즘 선택과 검증을 계속할 계획이다.
+
+## 서약 및 조원
+
+본 조는 위 내역이 실제 수행한 실험 및 확인한 자료에 근거하도록 작성하였으며, AI의 제안을 그대로 수용하지 않고 성능을 직접 검증하였음을 확인한다.
+
+**5조 / 팀원:** 윤종원, 강은비, 이준수
